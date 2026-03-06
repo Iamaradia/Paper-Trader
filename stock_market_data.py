@@ -3,7 +3,7 @@ import time
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Example code to better understand, real functioning code is below
+"""# Example code to better understand, real functioning code is below
 # Gets the data needed and makes a ticker object
 symbol = 'AAPL'
 ticker = yf.Ticker(symbol)
@@ -12,7 +12,7 @@ ticker = yf.Ticker(symbol)
 period = '5d'
 # How spaced out each point should be i.e. how granular it is
 # Possible: "1m","2m","5m","15m","30m","60m","1d","1wk","1mo"
-interval = '30m'
+interval = '60m'
 
 
 # Function for when importing
@@ -31,8 +31,11 @@ ax1.plot(df.index, df["Close"], label="Close")
 
 ax1.set_ylabel("Price")
 
-plt.show()
-df.to_csv('df.csv')
+plt.show()"""
+
+
+# df.to_csv(r"C:\Users\yegia\OneDrive\Documents\Aaradhya\programming\Paper-Trader\df.csv")
+
 
 # Making a class for the stocks data
 class Stock:
@@ -52,6 +55,21 @@ class Stock:
     def data_frame_with_ticker(self):
         return yf.download(self.symbol, period=self.period, interval=self.interval, progress=False)
 
+    # Gives an unformatted graph
     def output_graph(self):
         df = yf.download(self.symbol, period=self.period, interval=self.interval, progress=False)
 
+    # Gives the current non-live price when it was called
+    # Can be delayed
+    def current_price(self):
+        return round(self.ticker.fast_info["last_price"], 2)
+
+    def moving_average(self, window=4):
+        df = self.data_frame_with_ticker()
+        return df["Close"].rolling(window).mean().dropna()
+
+
+"""apple = Stock(symbol, period, interval)
+print(apple.moving_average())
+apple.period = '1d'
+print(apple.moving_average())"""
