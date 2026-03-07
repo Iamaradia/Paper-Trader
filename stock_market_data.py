@@ -40,7 +40,7 @@ plt.show()"""
 # Making a class for the stocks data
 class Stock:
 
-    def __init__(self, ticker, period, interval):
+    def __init__(self, ticker, period='30m', interval='1d'):
         # Gets the data needed and makes a ticker object
         self.symbol = ticker
         self.ticker = yf.Ticker(self.symbol)
