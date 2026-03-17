@@ -1,13 +1,10 @@
 import yfinance as yf
-import time
-import requests
-
 
 
 # Making a class for the stocks transactions
 class Stock:
 
-    def __init__(self, ticker, period='30m', interval='1d'):
+    def __init__(self, ticker, period='1d', interval='30m'):
         # Gets the transactions needed and makes a ticker object
         self.symbol = ticker
         self.ticker = yf.Ticker(self.symbol)
@@ -22,10 +19,6 @@ class Stock:
     def data_frame_with_ticker(self):
         return yf.download(self.symbol, period=self.period, interval=self.interval, progress=False)
 
-    # Gives an unformatted graph
-    def output_graph(self):
-        df = yf.download(self.symbol, period=self.period, interval=self.interval, progress=False)
-
     # Gives the current price when it was called
     # Can be delayed
     def current_price(self):
@@ -34,12 +27,27 @@ class Stock:
 
         if price is None:
             hist = self.ticker.history(period="1d")
+
+            if hist.empty:
+                raise ValueError("Could not get price data")
+
             price = hist["Close"].iloc[-1]
 
-        return round(price, 2)
+        return float(round(price, 2))
 
-    def moving_average(self, window=4):
+    # Goes through all of them in a window, gets the average, and averages that
+    def moving_average(self, window=10):
         df = self.data_frame_with_ticker()
+
+        if df.empty:
+            return None
+
+        if "Close" not in df:
+            return None
+
+        if len(df) < window:
+            return None
+
         return df["Close"].rolling(window).mean().dropna()
 
 
@@ -48,23 +56,12 @@ print(apple.moving_average())
 apple.period = '1d'
 print(apple.moving_average())"""
 
-# Gets the first search result in case they don't know the ticker
+
+# Gets the search result in case they don't know the ticker
 def search(query):
-    url = f"https://query1.finance.yahoo.com/v1/finance/search?q={query}"
-    # Makes it seem like it is an user instead of a script
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    r = requests.get(url, headers=headers)
-    data = r.json()
-
-    if not data["quotes"]:
+    try:
+        results = yf.Search(query)
+        return [q["symbol"] for q in results.quotes]
+    except Exception:
         return []
-
-    symbols = []
-
-    for q in data["quotes"]:
-        symbols.append(q["symbol"])
-
-    return symbols
-
 

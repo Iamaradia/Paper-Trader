@@ -1,11 +1,9 @@
+# Old code
 from stock_market_data import Stock
 from pathlib import Path
 import csv
 from datetime import datetime
 import json
-
-#  --- File Setup ---
-# ----------------------------------------------------------------------------------------------------------
 
 # Initializes the files and if not there, makes new ones
 transactions_file = Path("paper_transactions.csv")
@@ -31,20 +29,6 @@ def initialize_data(starting_cash, fee_per_trade):
 if not data_file.exists():
     initialize_data(100000.00, 0.0)
 
-
-# Resets all the data
-def reset(starting_cash=100000.00, fee_per_trade=0.0):
-    # Resets the JSON data
-    initialize_data(starting_cash, fee_per_trade)
-
-    # Clears the CSV back to just the header
-    with open(transactions_file, 'w', newline='') as f:
-        w = csv.writer(f)
-        w.writerow(['symbol', 'shares', 'price', 'time', 'type'])
-
-
-# --- File I/O ---
-# ----------------------------------------------------------------------------------------------------------
 
 # Gives all the rows in the log into a list and if there are empty lines, auto-cleans it
 def read_transactions():
@@ -73,86 +57,27 @@ def read_transactions():
     return rows
 
 
-# Gives all the transactions in a dictionary
-def all_transactions():
-    return dict_sort(read_transactions())
-
-
-# Gives all the transactions of a symbol
-def transactions(symbol):
-    symbol = symbol.strip().upper()
+# Gets all the symbols in the CSV and gets the ones that are owned depending on preference
+def all_symbols(owned=True):
     data = all_transactions()
-    rows = []
-
+    symbols = set()
     for i in data:
-        if i['symbol'] == symbol:
-            rows.append(i)
-    return rows
+        symbols.add(i['symbol'])
+
+    if not owned:
+        return list(symbols)
+
+    return [i for i in symbols if shares_owned(i) > 0]
 
 
-# Sort each of the rows by their header
-def dict_sort(rows):
-    if not rows:
-        return []
-
-    header = rows[0]
-    data = rows[1:]
-    return [dict(zip(header, row)) for row in data]
+# Sees if the symbol exists in the transactions file
+def find_symbol_exists(symbol):
+    return symbol in all_symbols(owned=False)
 
 
-# --- Account ---
-# ----------------------------------------------------------------------------------------------------------
-
-# Gives the data in the JSON file
-def read_data():
-    if not data_file.exists():
-        return {}
-    try:
-        with open(data_file, 'r') as file:
-            return json.load(file)
-    except json.JSONDecodeError:
-        return {}
-
-
-# Changes the json file by rewriting it
-def write_data(data):
-    with open(data_file, 'w') as file:
-        json.dump(data, file, indent=4)
-
-
-# Get the cash balance
-def balance():
-    data = read_data()
-    return data.get("cash", 0.0)
-
-
-# Updates the cash balance
-def update_balance(amount):
-    data = read_data()
-    data['cash'] = round(data.get('cash', 0.0) + amount, 2)
-    write_data(data)
-
-
-# --- Trading ---------------------------------------------------------------------------------------------
-# ----------------------------------------------------------------------------------------------------------
-# Checks the symbols and shares in one place
-def check_transaction(symbol, shares):
-    if shares is None or shares <= 0:
-        return False
-
-    if shares % 1 != 0:
-        return False
-
-    symbol = symbol.strip().upper()
-    if symbol == "":
-        return False
-
-    try:
-        Stock(symbol).current_price()
-    except:
-        return False
-
-    return True
+# Sees how many shares there are
+def shares_owned(symbol):
+    return replay_symbol(symbol)['shares_left']
 
 
 # Fills in the transactions and sends to CSV
@@ -168,6 +93,117 @@ def place_trade(symbol, shares, market_price):
         # Gives the time now in the following format 2026-03-05 19:41:28
         time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         writer.writerow([symbol, shares, market_price, time, trade_type])
+
+
+# Sort each of the rows by their header
+def dict_sort(rows):
+    if not rows:
+        return []
+
+    header = rows[0]
+    data = rows[1:]
+    return [dict(zip(header, row)) for row in data]
+
+
+# Sum of all money ever spent buying a stock, ignoring sells
+def total_invested(symbol):
+    data = transactions(symbol)
+    total = 0
+    for i in data:
+        if i['type'] == 'buy':
+            total += int(i['shares']) * float(i['price'])
+    return total
+
+
+def total_invested_portfolio():
+    return sum([total_invested(i) for i in all_symbols(owned=False)])
+
+
+# Gets the remaining cost basis using the average cost method, where you get the total cost and shares of that stock,
+# divide it to get the average, and then multiply it by the total shares to get the original cost
+def cost_basis(symbol):
+    return replay_symbol(symbol)['cost_left']
+
+
+# Gets the position with the current market price
+def position(symbol):
+    if shares_owned(symbol) == 0:
+        return 0
+    return round(shares_owned(symbol) * Stock(symbol).current_price(), 2)
+
+
+# Gets the difference between the current value and the past value, and is unrealized.
+# This means that it is the pnl that is still invested and not turned into cash
+def unrealized_pnl(symbol):
+    if shares_owned(symbol) == 0:
+        return 0
+    return round(position(symbol) - cost_basis(symbol), 2)
+
+
+# Gets the profit and loss of the whole portfolio, and is unrealized
+def portfolio_pnl_unrealized():
+    symbols = all_symbols()
+    total = 0
+    for i in symbols:
+        total += unrealized_pnl(i)
+    return round(total, 2)
+
+
+# Gets the pnl from the stocks sold(realized) and the investment(unrealized)
+def total_pnl_portfolio():
+    return round(balance() + portfolio_value() - read_data()['starting_cash'], 2)
+
+
+# Gets the realized pnl for each stock
+def realized_pnl(symbol):
+    return replay_symbol(symbol)['realized_pnl']
+
+
+# Gets the total pnl of a company you bought
+def total_pnl(symbol):
+    return unrealized_pnl(symbol) + realized_pnl(symbol)
+
+
+# Gets the current value of the portfolio
+def portfolio_value():
+    total = 0
+
+    # Goes through all owned symbols and adds up their current market value
+    for i in all_symbols():
+        shares = shares_owned(i)
+        total += shares * Stock(i).current_price()
+
+    return round(total, 2)
+
+
+# Gives the data in the JSON file
+def read_data():
+    if not data_file.exists():
+        return {}
+    try:
+        with open(data_file, 'r') as file:
+            return json.load(file)
+    except json.JSONDecodeError:
+        return {}
+
+
+# Get the cash balance
+def balance():
+    data = read_data()
+    return data.get("cash", 0.0)
+
+
+# Changes the json file by rewriting it
+def write_data(data):
+    with open(data_file, 'w') as file:
+        json.dump(data, file, indent=4)
+
+
+# Updates the cash balance
+def update_balance(amount):
+    data = read_data()
+    data['cash'] = round(data.get('cash', 0.0) + amount, 2)
+    write_data(data)
 
 
 # Handles the logic to buy stocks by check if valid and then placing trade and updating balance
@@ -207,8 +243,45 @@ def sell(symbol, shares):
     return True
 
 
-# --- Calculations ---
-# ----------------------------------------------------------------------------------------------------------
+# Checks the symbols and shares in one place
+def check_transaction(symbol, shares):
+    if shares % 1 != 0:
+        return False
+
+    if shares is None or shares <= 0:
+        return False
+
+    symbol = symbol.strip().upper()
+    if symbol == "":
+        return False
+
+    try:
+        Stock(symbol).current_price()
+    except:
+        return False
+
+    return True
+
+
+# Get the rate of investment, which measures the financial profit and loss by dividing the pnl by the original cost
+def roi(symbol):
+    ti = total_invested(symbol)
+    if ti == 0:
+        return 0
+    return round(total_pnl(symbol) / ti * 100, 2)
+
+
+# Gets the original price for the whole portfolio
+def cost_basis_portfolio():
+    return sum([cost_basis(i) for i in all_symbols()])
+
+
+# Gets the roi of the whole portfolio
+def roi_portfolio():
+    ti = total_invested_portfolio()
+    if ti == 0:
+        return 0
+    return round(total_pnl_portfolio() / ti * 100, 2)
 
 
 # Gives a main function for cost basis, shares owned and realized pnl as they do around the same things
@@ -247,137 +320,21 @@ def replay_symbol(symbol):
     }
 
 
-# Sees how many shares there are
-def shares_owned(symbol):
-    return replay_symbol(symbol)['shares_left']
+# Gives all the transactions in a dictionary
+def all_transactions():
+    return dict_sort(read_transactions())
 
 
-# Gets the cost still invested
-def cost_basis(symbol):
-    return replay_symbol(symbol)['cost_left']
-
-
-# Gets the position with the current market price
-def position(symbol):
-    if shares_owned(symbol) == 0:
-        return 0
-    return round(shares_owned(symbol) * Stock(symbol).current_price(), 2)
-
-
-# Sum of all money ever spent buying a stock, ignoring sells
-def total_invested(symbol):
-    data = transactions(symbol)
-    total = 0
-    for i in data:
-        if i['type'] == 'buy':
-            total += int(i['shares']) * float(i['price'])
-    return total
-
-
-def total_invested_portfolio():
-    return sum([total_invested(i) for i in all_symbols(owned=False)])
-
-
-# --- PnL ---
-# ----------------------------------------------------------------------------------------------------------
-
-
-# Gets the difference between the current value and the past value, and is unrealized.
-# This means that it is the pnl that is still invested and not turned into cash
-def unrealized_pnl(symbol):
-    if shares_owned(symbol) == 0:
-        return 0
-    return round(position(symbol) - cost_basis(symbol), 2)
-
-
-# Gets the profit and loss of the whole portfolio, and is unrealized
-def portfolio_pnl_unrealized():
-    symbols = all_symbols()
-    total = 0
-    for i in symbols:
-        total += unrealized_pnl(i)
-    return round(total, 2)
-
-
-# Gets the realized pnl for each stock
-def realized_pnl(symbol):
-    return replay_symbol(symbol)['realized_pnl']
-
-
-# Gets the total pnl of a company you bought
-def total_pnl(symbol):
-    return unrealized_pnl(symbol) + realized_pnl(symbol)
-
-
-# Gets the pnl from the stocks sold(realized) and the investment(unrealized)
-def total_pnl_portfolio():
-    return round(balance() + portfolio_value() - read_data()['starting_cash'], 2)
-
-
-# --- ROI ---
-# ----------------------------------------------------------------------------------------------------------
-
-# Get the rate of investment, which measures the financial profit and loss by dividing the pnl by the original cost
-def roi(symbol):
-    ti = total_invested(symbol)
-    if ti == 0:
-        return 0
-    return round(total_pnl(symbol) / ti * 100, 2)
-
-
-# Gets the roi of the whole portfolio
-def roi_portfolio():
-    ti = total_invested_portfolio()
-    if ti == 0:
-        return 0
-    return round(total_pnl_portfolio() / ti * 100, 2)
-
-
-# Gives the performance and return vs starting cash
-def roi_account():
-    starting = read_data()['starting_cash']
-    if starting == 0:
-        return 0
-    return round(total_pnl_portfolio() / starting * 100, 2)
-
-
-# --- Portfolio ---
-# ----------------------------------------------------------------------------------------------------------
-
-
-# Gets the original price for the whole portfolio
-def cost_basis_portfolio():
-    return sum([cost_basis(i) for i in all_symbols()])
-
-
-# Gets the current value of the portfolio
-def portfolio_value():
-    total = 0
-
-    # Goes through all owned symbols and adds up their current market value
-    for i in all_symbols():
-        shares = shares_owned(i)
-        total += shares * Stock(i).current_price()
-
-    return round(total, 2)
-
-
-# Gets all the symbols in the CSV and gets the ones that are owned depending on preference
-def all_symbols(owned=True):
+# Gives all the transactions of a symbol
+def transactions(symbol):
+    symbol = symbol.strip().upper()
     data = all_transactions()
-    symbols = set()
+    rows = []
+
     for i in data:
-        symbols.add(i['symbol'])
-
-    if not owned:
-        return list(symbols)
-
-    return [i for i in symbols if shares_owned(i) > 0]
-
-
-# Sees if the symbol exists in the transactions file
-def find_symbol_exists(symbol):
-    return symbol in all_symbols(owned=False)
+        if i['symbol'] == symbol:
+            rows.append(i)
+    return rows
 
 
 # Gives a summary of that stock if specified, or it will give it for the whole portfolio for each stock
@@ -421,3 +378,22 @@ def portfolio_stats():
         "roi_portfolio": roi_portfolio(),
         "roi_account": roi_account()
     }
+
+
+# Gives the performance and return vs starting cash
+def roi_account():
+    starting = read_data()['starting_cash']
+    if starting == 0:
+        return 0
+    return round(total_pnl_portfolio() / starting * 100, 2)
+
+
+# Resets all the data
+def reset(starting_cash=100000.00, fee_per_trade=0.0):
+    # Resets the JSON data
+    initialize_data(starting_cash, fee_per_trade)
+
+    # Clears the CSV back to just the header
+    with open(transactions_file, 'w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(['symbol', 'shares', 'price', 'time', 'type'])
