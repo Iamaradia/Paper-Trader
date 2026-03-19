@@ -138,21 +138,21 @@ def update_balance(amount):
 # Checks the symbols and shares in one place
 def check_transaction(symbol, shares):
     if shares is None or shares <= 0:
-        return False
+        return False, "Error: Amount cannot be nothing or negative"
 
     if shares % 1 != 0:
-        return False
+        return False, "Error: Amount cannot be a decimal"
 
     symbol = symbol.strip().upper()
     if symbol == "":
-        return False
+        return False, "Error: Ticker cannot be empty"
 
     try:
         Stock(symbol).current_price()
     except:
-        return False
+        return False, 'Error: Name is invalid'
 
-    return True
+    return True, ''
 
 
 # Fills in the transactions and sends to CSV
@@ -172,26 +172,28 @@ def place_trade(symbol, shares, market_price):
 
 # Handles the logic to buy stocks by check if valid and then placing trade and updating balance
 def buy(symbol, shares):
-    if not check_transaction(symbol, shares):
-        return False
+    valid, message = check_transaction(symbol, shares)
+    if not valid:
+        return False, message
 
     market_price = Stock(symbol).current_price()
     fee = read_data().get("fee_per_trade", 0.0)
 
     # If you have less cash then the cost of the transaction, or if shares less than zero it won't run
     if balance() < shares * market_price + fee:
-        return False
+        return False, 'You do not have enough money'
 
     place_trade(symbol, shares, market_price)
     # Updates the cash value, so it goes down by the cost
     update_balance(-(shares * market_price + fee))
-    return True
+    return True, ''
 
 
 # Handles the logic to sell stocks by checking if valid and then placing trade and updating balance
 def sell(symbol, shares):
-    if not check_transaction(symbol, shares):
-        return False
+    valid, message = check_transaction(symbol, shares)
+    if not valid:
+        return False, message
 
     market_price = Stock(symbol).current_price()
     bought_shares = shares_owned(symbol)
@@ -199,12 +201,12 @@ def sell(symbol, shares):
 
     # If there is more shares sold then you have or if its 0, it won't run
     if shares > bought_shares:
-        return False
+        return False, 'Error: Cannot sell more stocks than owned'
 
     place_trade(symbol, -1 * shares, market_price)
     # Updates the cash value
     update_balance(shares * market_price - fee)
-    return True
+    return True, ''
 
 
 # --- Calculations ---

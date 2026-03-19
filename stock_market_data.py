@@ -16,8 +16,10 @@ class Stock:
         self.interval = interval
 
     # When you need just a transactions frame
-    def data_frame_with_ticker(self):
-        return yf.download(self.symbol, period=self.period, interval=self.interval, progress=False)
+    def data_frame_with_ticker(self, period=None, interval=None):
+        period = period or self.period
+        interval = interval or self.interval
+        return yf.download(self.symbol, period=period, interval=interval, progress=False)
 
     # Gives the current price when it was called
     # Can be delayed
