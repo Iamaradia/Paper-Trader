@@ -27,6 +27,12 @@ if "clear_search" not in st.session_state:
 if "selected_period" not in st.session_state:
     st.session_state.selected_period = "1D"
 
+if "confirm_buy" not in st.session_state:
+    st.session_state.confirm_buy = False
+
+if "confirm_sell" not in st.session_state:
+    st.session_state.confirm_sell = False
+
 
 # ------------------------------ Helpers ------------------------------
 
@@ -330,31 +336,40 @@ def stock_chart(ticker):
 
     # CSS to make buttons transparent and underline the active one
     st.markdown("""
-        <style>
-        div[data-testid="stHorizontalBlock"] button {
-            background: transparent !important;
-            border: none !important;
-            border-bottom: 2px solid transparent !important;
-            border-radius: 0 !important;
-            color: #888 !important;
-            font-size: 0.85rem !important;
-            padding: 4px 8px !important;
-            transition: all 0.15s ease;
-        }
-        div[data-testid="stHorizontalBlock"] button:hover {
-            color: white !important;
-            border-bottom: 2px solid white !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    <style>
+    /* All period buttons */
+    div[data-testid="stHorizontalBlock"] button {
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        border-radius: 0 !important;
+        color: #888 !important;
+        font-size: 0.85rem !important;
+        padding: 4px 8px !important;
+        transition: all 0.15s ease;
+    }
+
+    /* Active period button */
+    div[data-testid="stHorizontalBlock"] button[kind="primary"] {
+        color: white !important;
+        border-bottom: 2px solid white !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] button:hover {
+        color: white !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # Render one button per period in a row
     cols = st.columns(len(periods))
+    # Mark the active period so CSS can style it differently
     for col, label in zip(cols, periods.keys()):
         with col:
-            # Highlight the active period with a different color
-            button_label = f"**{label}**" if label == st.session_state.selected_period else label
-            if st.button(button_label, use_container_width=True, key=f"period_{ticker}_{label}"):
+            is_active = label == st.session_state.selected_period
+            if st.button(label, use_container_width=True,
+                         key=f"period_{ticker}_{label}",
+                         type="primary" if is_active else "secondary"):
                 st.session_state.selected_period = label
                 st.rerun()
 
@@ -462,27 +477,66 @@ def buy_and_sell(ticker):
 
     with col1:
         buy_shares = st.number_input("Shares to buy", min_value=1, step=1, key="buy_input")
-        if st.button("Buy", use_container_width=True):
-            success, message = pt.buy(ticker, buy_shares)
-            if success:
-                st.success(f"Bought {buy_shares} shares of {ticker}")
-                fetch_history.clear()
-                enrich.clear()
+
+        # Show estimated total cost before confirming
+        price = Stock(ticker).current_price()
+        total_cost = price * buy_shares
+        st.caption(f"Total cost: ${total_cost:,.2f}")
+
+        if not st.session_state.confirm_buy:
+            if st.button("Buy", use_container_width=True):
+                st.session_state.confirm_buy = True
                 st.rerun()
-            else:
-                st.error(message)
+        else:
+            st.warning(f"Buy {buy_shares} shares of {ticker} for ${total_cost:,.2f}?")
+            yes, no = st.columns(2)
+            with yes:
+                if st.button("✅ Yes", use_container_width=True, key="confirm_yes"):
+                    success, message = pt.buy(ticker, buy_shares)
+                    if success:
+                        st.success(f"Bought {buy_shares} shares of {ticker}")
+                        fetch_history.clear()
+                        enrich.clear()
+                        st.session_state.confirm_buy = False
+                        st.rerun()
+                    else:
+                        st.error(message)
+                        st.session_state.confirm_buy = False
+            with no:
+                if st.button("❌ No", use_container_width=True, key="confirm_no"):
+                    st.session_state.confirm_buy = False
+                    st.rerun()
 
     with col2:
-        sell_shares = st.number_input("Shares to sell", min_value=1, step=1, key="sell_input")
-        if st.button("Sell", use_container_width=True):
-            success, message = pt.sell(ticker, sell_shares)
-            if success:
-                st.success(f"Sold {sell_shares} shares of {ticker}")
-                fetch_history.clear()
-                enrich.clear()
+        sell_shares = st.number_input("Shares to Sell", min_value=1, step=1, key="sell_input")
+
+        price = Stock(ticker).current_price()
+        total_return = price * sell_shares
+        st.caption(f"Total return: ${total_return:,.2f}")
+
+        if not st.session_state.confirm_sell:  # ← was confirm_buy
+            if st.button("Sell", use_container_width=True):
+                st.session_state.confirm_sell = True
                 st.rerun()
-            else:
-                st.error(message)
+        else:
+            st.warning(f"Sell {sell_shares} shares of {ticker} for ${total_return:,.2f}?")
+            yes, no = st.columns(2)
+            with yes:
+                if st.button("✅ Yes", use_container_width=True, key="sell_confirm_yes"):  # ← unique key
+                    success, message = pt.sell(ticker, sell_shares)  # ← was pt.buy, buy_shares
+                    if success:
+                        st.success(f"Sold {sell_shares} shares of {ticker}")
+                        fetch_history.clear()
+                        enrich.clear()
+                        st.session_state.confirm_sell = False
+                        st.rerun()
+                    else:
+                        st.error(message)
+                        st.session_state.confirm_sell = False
+            with no:
+                if st.button("❌ No", use_container_width=True, key="sell_confirm_no"):  # ← unique key
+                    st.session_state.confirm_sell = False
+                    st.rerun()
 
 
 # ------------------------------ App Navigation ------------------------------
